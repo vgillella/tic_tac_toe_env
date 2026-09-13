@@ -141,6 +141,9 @@ own adversary instead of a fixed policy.
 # From this directory
 docker build -t tic_tac_toe_env-env:latest -f server/Dockerfile .
 docker run -p 8000:8000 tic_tac_toe_env-env:latest
+
+# To also get the /web UI in the container, enable it explicitly:
+docker run -p 8000:8000 -e ENABLE_WEB_INTERFACE=true tic_tac_toe_env-env:latest
 ```
 
 ## Deploying to Hugging Face Spaces
@@ -153,7 +156,10 @@ openenv push
 openenv push --repo-id my-org/tic-tac-toe-env --private
 ```
 
-After deployment your Space will be available at
+`openenv push` automatically sets `ENABLE_WEB_INTERFACE=true` for the
+deployed Space, so `/web` works there without any extra configuration
+(unlike a plain local `uvicorn`/`docker run`, which needs the env var set
+explicitly — see above). After deployment your Space will be available at
 `https://huggingface.co/spaces/<repo-id>`, exposing:
 - **Web Interface** at `/web`
 - **API Docs** at `/docs`
@@ -183,6 +189,18 @@ Run the server locally:
 uv sync
 uvicorn server.app:app --reload
 ```
+
+By default the server only exposes the REST/WebSocket API (`/reset`,
+`/step`, `/ws`, `/docs`, `/health`) — the human-playable Gradio web UI at
+`/web` is opt-in via an environment variable:
+
+```bash
+ENABLE_WEB_INTERFACE=true uvicorn server.app:app --reload
+```
+
+Then open `http://localhost:8000/web` in a browser to play interactively.
+(On Hugging Face Spaces this is set automatically, which is why `/web`
+works there without extra configuration.)
 
 Run the test suite:
 
