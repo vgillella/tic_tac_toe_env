@@ -63,14 +63,26 @@ class directly and run thousands of episodes in-process:
 python3 train_q_learning.py --episodes 20000 --opponent heuristic
 ```
 
-This trains a tabular Q-learning agent and evaluates it against both the
-`heuristic` and `random` built-in opponents:
+This trains a tabular Q-learning agent and evaluates it against the
+`heuristic`, `random`, and `minimax` built-in opponents:
 
 ```
 Training tabular Q-learning agent for 20000 episodes vs 'heuristic' opponent...
 Learned 1188 distinct board states.
 vs heuristic: win=92.4% draw=7.6% loss=0.0% illegal=0/1000
 vs    random: win=85.4% draw=6.5% loss=8.1% illegal=0/1000
+vs   minimax: win=0.0% draw=100.0% loss=0.0% illegal=0/1000
+```
+
+A well-trained agent should always draw (never win or lose) against
+`minimax`, since that opponent plays optimally — this is a good sanity
+check that training worked.
+
+Save a trained policy and reload it later without retraining:
+
+```bash
+python3 train_q_learning.py --episodes 20000 --save-path policy.json
+python3 train_q_learning.py --load-path policy.json  # skips training, evaluates directly
 ```
 
 Once you have a policy, swap in the HTTP `TicTacToeEnv` client to evaluate it
@@ -115,8 +127,13 @@ policies, chosen when constructing `TicTacToeEnvironment(opponent=...)`:
   blocks the agent's winning move, otherwise plays randomly. A reasonable
   training adversary that a good agent can consistently beat or draw.
 - `"random"` — always plays a uniformly random empty cell. Easier baseline.
+- `"minimax"` — exhaustively solves the game tree and plays optimally.
+  Never loses; a good agent can at best force a draw against it. Useful
+  as an upper-bound evaluation baseline rather than a training adversary
+  (it gives no room for the agent to ever learn from a win).
 
-Swap in a minimax or self-play opponent here if you want a harder target.
+Swap in a self-play opponent here if you want the agent to bootstrap its
+own adversary instead of a fixed policy.
 
 ## Building the Docker Image
 
@@ -167,6 +184,13 @@ uv sync
 uvicorn server.app:app --reload
 ```
 
+Run the test suite:
+
+```bash
+uv sync --extra dev
+pytest tests/
+```
+
 > **Note on the plain REST `/reset` and `/step` endpoints:** they operate on
 > a single shared environment instance and are best for quick manual checks
 > (e.g. `curl`). For real multi-step games with isolated per-client state,
@@ -185,6 +209,8 @@ tic_tac_toe_env/
 ├── client.py                   # TicTacToeEnv WebSocket client
 ├── models.py                   # TicTacToeAction / TicTacToeObservation
 ├── train_q_learning.py         # Example tabular Q-learning training script
+├── tests/
+│   └── test_environment.py     # pytest suite for game logic + opponents
 └── server/
     ├── tic_tac_toe_env_environment.py  # Game logic + opponent policy
     ├── app.py                          # FastAPI application (HTTP + WebSocket)

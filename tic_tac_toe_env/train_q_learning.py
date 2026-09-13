@@ -18,11 +18,16 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import random
 from collections import defaultdict
 
 from models import TicTacToeAction
 from server.tic_tac_toe_env_environment import TicTacToeEnvironment
+
+
+def _default_q_values() -> list[float]:
+    return [0.0] * 9
 
 
 def epsilon_greedy(q_table, state, valid_actions, epsilon):
@@ -32,9 +37,27 @@ def epsilon_greedy(q_table, state, valid_actions, epsilon):
     return max(valid_actions, key=lambda a: q_values[a])
 
 
+def save_q_table(q_table: dict, path: str) -> None:
+    """Persist a Q-table to JSON (board tuples become comma-joined string keys)."""
+    serializable = {",".join(map(str, state)): values for state, values in q_table.items()}
+    with open(path, "w") as f:
+        json.dump(serializable, f)
+
+
+def load_q_table(path: str) -> dict:
+    """Load a Q-table previously written by `save_q_table`."""
+    with open(path) as f:
+        raw = json.load(f)
+    q_table: dict[tuple, list[float]] = defaultdict(_default_q_values)
+    for key, values in raw.items():
+        state = tuple(int(x) for x in key.split(","))
+        q_table[state] = values
+    return q_table
+
+
 def train(episodes: int, opponent: str, alpha: float, gamma: float, epsilon_start: float, epsilon_end: float) -> dict:
     env = TicTacToeEnvironment(opponent=opponent)
-    q_table: dict[tuple, list[float]] = defaultdict(lambda: [0.0] * 9)
+    q_table: dict[tuple, list[float]] = defaultdict(_default_q_values)
 
     for episode in range(episodes):
         epsilon = epsilon_start + (epsilon_end - epsilon_start) * (episode / max(episodes - 1, 1))
@@ -83,26 +106,42 @@ def evaluate(q_table: dict, opponent: str, games: int) -> dict:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--episodes", type=int, default=20000)
-    parser.add_argument("--opponent", choices=["heuristic", "random"], default="heuristic")
+    parser.add_argument("--opponent", choices=["heuristic", "random", "minimax"], default="heuristic")
     parser.add_argument("--alpha", type=float, default=0.5, help="learning rate")
     parser.add_argument("--gamma", type=float, default=0.95, help="discount factor")
     parser.add_argument("--epsilon-start", type=float, default=1.0)
     parser.add_argument("--epsilon-end", type=float, default=0.05)
     parser.add_argument("--eval-games", type=int, default=1000)
+    parser.add_argument("--save-path", type=str, default=None, help="write the trained Q-table to this JSON file")
+    parser.add_argument(
+        "--load-path",
+        type=str,
+        default=None,
+        help="load a previously saved Q-table from this JSON file instead of training",
+    )
     args = parser.parse_args()
 
-    print(f"Training tabular Q-learning agent for {args.episodes} episodes vs '{args.opponent}' opponent...")
-    q_table = train(
-        episodes=args.episodes,
-        opponent=args.opponent,
-        alpha=args.alpha,
-        gamma=args.gamma,
-        epsilon_start=args.epsilon_start,
-        epsilon_end=args.epsilon_end,
-    )
-    print(f"Learned {len(q_table)} distinct board states.")
+    if args.load_path:
+        print(f"Loading Q-table from {args.load_path}...")
+        q_table = load_q_table(args.load_path)
+        print(f"Loaded {len(q_table)} distinct board states.")
+    else:
+        print(f"Training tabular Q-learning agent for {args.episodes} episodes vs '{args.opponent}' opponent...")
+        q_table = train(
+            episodes=args.episodes,
+            opponent=args.opponent,
+            alpha=args.alpha,
+            gamma=args.gamma,
+            epsilon_start=args.epsilon_start,
+            epsilon_end=args.epsilon_end,
+        )
+        print(f"Learned {len(q_table)} distinct board states.")
 
-    for opp in ("heuristic", "random"):
+    if args.save_path:
+        save_q_table(q_table, args.save_path)
+        print(f"Saved Q-table to {args.save_path}")
+
+    for opp in ("heuristic", "random", "minimax"):
         results = evaluate(q_table, opponent=opp, games=args.eval_games)
         win_rate = results["wins"] / results["games"]
         draw_rate = results["draws"] / results["games"]

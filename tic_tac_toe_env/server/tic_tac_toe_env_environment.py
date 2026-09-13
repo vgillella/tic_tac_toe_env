@@ -5,14 +5,15 @@ Tic Tac Toe Environment Implementation.
 
 The agent plays "X" and always moves first. A built-in opponent plays "O"
 and moves automatically at the end of every `step()` call, unless the
-agent's move already ended the game. The opponent's policy is a simple
-"win if possible, else block, else random" heuristic (see
-`_opponent_move`) so a trained agent has a non-trivial but beatable
-adversary to learn against; swap it out for `random.choice` or a
-minimax player to change the difficulty.
+agent's move already ended the game. Three opponent policies are
+available (see `_opponent_move`): "random" (uniform random), "heuristic"
+(win if possible, else block, else random — beatable, a reasonable
+training adversary), and "minimax" (exhaustive optimal play — never
+loses, useful as an upper-bound evaluation baseline).
 """
 
 import random
+from functools import lru_cache
 from uuid import uuid4
 
 from openenv.core.env_server.interfaces import Environment
@@ -45,6 +46,51 @@ def _empty_cells(board: list[int]) -> list[int]:
     return [i for i, v in enumerate(board) if v == 0]
 
 
+@lru_cache(maxsize=None)
+def _minimax_score(board: tuple[int, ...], player: int) -> int:
+    """Fully-solved score of `board` with `player` to move next.
+
+    Returns 1 if X can force a win, -1 if O can force a win, 0 for a
+    forced draw, assuming both sides play optimally from here on.
+    Memoized because the same sub-boards recur across many top-level
+    calls; the whole game tree is small enough (<= 9! nodes, far fewer
+    in practice) to solve exhaustively rather than needing alpha-beta
+    pruning or a fixed search depth.
+    """
+    winner = _winner(list(board))
+    if winner is not None:
+        return winner
+    empties = _empty_cells(list(board))
+    if not empties:
+        return 0
+
+    scores = []
+    for cell in empties:
+        trial = list(board)
+        trial[cell] = player
+        scores.append(_minimax_score(tuple(trial), -player))
+    return max(scores) if player == 1 else min(scores)
+
+
+def _minimax_move(board: list[int]) -> int | None:
+    """Optimal move for "O" (-1): the cell minimizing X's best achievable score.
+
+    Returns None if `board` has no empty cells (never happens in
+    practice: `_opponent_move` only calls this after the agent's move,
+    which is only reached when at least one cell is still empty).
+    """
+    best_cell = None
+    best_score = None
+    for cell in _empty_cells(board):
+        trial = list(board)
+        trial[cell] = -1
+        score = _minimax_score(tuple(trial), 1)
+        if best_score is None or score < best_score:
+            best_score = score
+            best_cell = cell
+    return best_cell
+
+
 class TicTacToeEnvironment(Environment):
     """
     Single-agent Tic Tac Toe environment with a scripted opponent.
@@ -68,7 +114,9 @@ class TicTacToeEnvironment(Environment):
     def __init__(self, opponent: str = "heuristic", seed: int | None = None):
         """
         Args:
-            opponent: "heuristic" (win/block/random) or "random".
+            opponent: "heuristic" (win/block/random), "random", or
+                "minimax" (optimal play — never loses; a good agent can at
+                best force a draw against it).
             seed: Optional RNG seed for reproducible opponent play.
         """
         self._opponent_kind = opponent
@@ -184,6 +232,11 @@ class TicTacToeEnvironment(Environment):
 
         if self._opponent_kind == "random":
             return self._rng.choice(empties)
+
+        if self._opponent_kind == "minimax":
+            move = _minimax_move(board)
+            assert move is not None  # `empties` above is non-empty
+            return move
 
         # Heuristic: try to win, then block the agent, then play randomly.
         for player in (-1, 1):

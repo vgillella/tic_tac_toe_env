@@ -96,7 +96,13 @@ else is plumbing around it.
   per-instance state; `SUPPORTS_CONCURRENT_SESSIONS = True` so the WebSocket
   server can give each connected client its own isolated game.
 - `reset()` / `step()` — Gym-style lifecycle methods.
-- `_opponent_move(board)` — win-if-possible, else block, else random.
+- `_opponent_move(board)` — dispatches to one of three policies based on
+  `opponent_kind`: `"random"`, `"heuristic"` (win-if-possible, else block,
+  else random), or `"minimax"`.
+- `_minimax_score(board, player)` / `_minimax_move(board)` — exhaustively
+  solves the game tree (memoized with `functools.lru_cache`, keyed on the
+  board as a tuple) to find optimal play for "O". Small enough state space
+  (3x3) that no alpha-beta pruning or depth limit is needed.
 
 **How it works**:
 `step()` does two moves per call: the agent's, then (if the game isn't
@@ -151,6 +157,11 @@ against `TicTacToeEnvironment`, bypassing HTTP entirely for speed.
   run.
 - `evaluate(q_table, opponent, games)` — plays `games` greedy (epsilon=0)
   games and tallies win/draw/loss/illegal counts.
+- `save_q_table(q_table, path)` / `load_q_table(path)` — persist/restore a
+  trained policy as JSON. Board-tuple keys aren't valid JSON object keys,
+  so they're serialized as comma-joined strings (e.g. `"1,0,-1,..."`) and
+  parsed back into `tuple[int, ...]` on load; `--load-path` skips training
+  entirely and jumps straight to evaluation.
 
 **How it works**:
 The state key is `tuple(obs.board)` — a hashable 9-tuple of `{-1,0,1}` —
@@ -223,11 +234,16 @@ package's public API.
    games (the README calls this out explicitly).
 
 ## Test Coverage
-None found. `pyproject.toml` declares `pytest`/`pytest-cov` as optional
-dev dependencies, but no test files exist in the repository. The closest
-thing to verification is `train_q_learning.py`'s built-in `evaluate()`
-step, which is a behavioral sanity check (win/draw/loss/illegal rates), not
-an automated test suite.
+- Unit: 18 tests in `tests/test_environment.py` — win-line detection for
+  all 8 lines, `reset()` initial state, illegal-move penalty handling,
+  no-op behavior after an episode ends, the heuristic opponent's
+  block/win priority, the minimax opponent's block/win correctness, full
+  randomized games against all three opponents terminating with a valid
+  winner/reward, and a 30-game check that the minimax opponent never
+  loses. Run with `pytest tests/` from inside `tic_tac_toe_env/`.
+- Integration: 0 (the HTTP/WebSocket server layer in `server/app.py` is
+  still untested — would need a `TestClient`/`httpx` fixture).
+- E2E: 0.
 
 ## Security Measures
 None implemented — this is a local/self-hosted RL training environment,
@@ -236,28 +252,36 @@ endpoints; `max_concurrent_envs=4` is a resource cap, not a security
 control.
 
 ## Known Limitations
-- No automated tests (unit or integration) despite `pytest` being listed
-  as a dev dependency.
-- The opponent's "win/block/random" heuristic is not a true minimax, so it
-  is intentionally beatable — fine for training but not a benchmark of
-  "optimal" play.
+- No integration/E2E tests for the HTTP/WebSocket server layer
+  (`server/app.py`) — only the environment engine itself is unit-tested.
 - Plain REST `/reset`/`/step` share one global environment instance, which
   is a foot-gun for concurrent callers who don't realize they need the
   WebSocket client instead (documented, but not enforced in code).
-- No persistence: Q-tables from `train_q_learning.py` are never saved to
-  disk, so every run starts learning from scratch.
-- No git repository, so there is no change history, PR trail, or way to
-  attribute which parts of this code came from which prior session.
+- The minimax opponent recomputes its search on every move with no
+  cross-process cache (only in-process `lru_cache`), so a fresh server
+  process pays the full solve cost again on first use. Negligible in
+  practice for 3x3 Tic Tac Toe, but wouldn't scale to a larger board.
+- No self-play training loop — the agent only ever trains against the
+  three fixed scripted opponents.
 
 ## What's Next
-Given the limitations above, a reasonable next iteration would:
-1. Add a `pytest` suite covering `_winner`, illegal-move handling, and a
-   full scripted game against each opponent type — cheap given the state
-   space is tiny.
-2. Persist trained Q-tables (e.g., `pickle`/`json`) so `train_q_learning.py`
-   can save/load a policy instead of retraining every run.
-3. Optionally add a minimax or self-play opponent (the README explicitly
-   flags `_opponent_move` as the extension point).
-4. `git init` this project so future sprints can be diffed properly with
-   `/walkthrough`, and add a `PRD.md`/`TASKS.md` if continuing with the
-   sprint-based workflow.
+Completed this round:
+1. ✅ Added a `pytest` suite (`tests/test_environment.py`, 18 tests)
+   covering `_winner`, illegal-move handling, opponent block/win
+   correctness, and full scripted games against each opponent type.
+2. ✅ `train_q_learning.py` now supports `--save-path`/`--load-path` to
+   persist/reload a trained Q-table as JSON instead of retraining every run.
+3. ✅ Added a `"minimax"` opponent (`_minimax_move`/`_minimax_score` in
+   `server/tic_tac_toe_env_environment.py`) — exhaustively solved, never
+   loses, used as an evaluation upper bound.
+4. ✅ `git init`, initial commit, and pushed to
+   [github.com/vgillella/tic_tac_toe_env](https://github.com/vgillella/tic_tac_toe_env).
+
+Suggested next iteration:
+1. Add integration tests for `server/app.py` using FastAPI's `TestClient`
+   (REST `/reset`/`/step`) and a WebSocket client fixture (`/ws`).
+2. Add a self-play training mode so the agent isn't capped by the fixed
+   opponents' skill ceiling.
+3. Add `PRD.md`/`TASKS.md` under a `sprints/v1/` directory if continuing
+   with the sprint-based `/prd` + `/dev` + `/walkthrough` workflow going
+   forward.
