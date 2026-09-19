@@ -141,10 +141,10 @@ own adversary instead of a fixed policy.
 # From this directory
 docker build -t tic_tac_toe_env-env:latest -f server/Dockerfile .
 docker run -p 8000:8000 tic_tac_toe_env-env:latest
-
-# To also get the /web UI in the container, enable it explicitly:
-docker run -p 8000:8000 -e ENABLE_WEB_INTERFACE=true tic_tac_toe_env-env:latest
 ```
+
+`/web` (the clickable board) works out of the box here too — no extra
+flags needed.
 
 ## Deploying to Hugging Face Spaces
 
@@ -156,10 +156,7 @@ openenv push
 openenv push --repo-id my-org/tic-tac-toe-env --private
 ```
 
-`openenv push` automatically sets `ENABLE_WEB_INTERFACE=true` for the
-deployed Space, so `/web` works there without any extra configuration
-(unlike a plain local `uvicorn`/`docker run`, which needs the env var set
-explicitly — see above). After deployment your Space will be available at
+After deployment your Space will be available at
 `https://huggingface.co/spaces/<repo-id>`, exposing:
 - **Web Interface** at `/web`
 - **API Docs** at `/docs`
@@ -190,17 +187,13 @@ uv sync
 uvicorn server.app:app --reload
 ```
 
-By default the server only exposes the REST/WebSocket API (`/reset`,
-`/step`, `/ws`, `/docs`, `/health`) — the human-playable Gradio web UI at
-`/web` is opt-in via an environment variable:
-
-```bash
-ENABLE_WEB_INTERFACE=true uvicorn server.app:app --reload
-```
-
-Then open `http://localhost:8000/web` in a browser to play interactively.
-(On Hugging Face Spaces this is set automatically, which is why `/web`
-works there without extra configuration.)
+Then open `http://localhost:8000/web` in a browser to play interactively
+— a clickable 3x3 board (`server/gradio_board.py`), not just the raw
+REST/WebSocket API (`/reset`, `/step`, `/ws`, `/docs`, `/health`). It's
+mounted directly by `server/app.py` and always available, no
+`ENABLE_WEB_INTERFACE` env var needed (that variable only controls
+OpenEnv's own auto-generated fallback UI, which this project doesn't use —
+see `gradio_board.py`'s module docstring for why).
 
 Run the test suite:
 
