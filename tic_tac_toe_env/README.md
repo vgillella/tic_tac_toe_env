@@ -120,20 +120,29 @@ against a server running in Docker or deployed to Hugging Face Spaces — same
 
 ### Opponent
 
-The built-in opponent (`server/tic_tac_toe_env_environment.py`) supports two
-policies, chosen when constructing `TicTacToeEnvironment(opponent=...)`:
+The built-in opponent (`server/tic_tac_toe_env_environment.py`) supports
+three fixed (non-learning) policies, chosen when constructing
+`TicTacToeEnvironment(opponent=...)`:
 
-- `"heuristic"` (default) — takes a winning move if available, otherwise
-  blocks the agent's winning move, otherwise plays randomly. A reasonable
-  training adversary that a good agent can consistently beat or draw.
-- `"random"` — always plays a uniformly random empty cell. Easier baseline.
-- `"minimax"` — exhaustively solves the game tree and plays optimally.
-  Never loses; a good agent can at best force a draw against it. Useful
-  as an upper-bound evaluation baseline rather than a training adversary
-  (it gives no room for the agent to ever learn from a win).
+- `"minimax"` (default) — exhaustively solves the game tree and plays
+  optimally. Never loses; the best you can do against it is a draw. This
+  is what the deployed `/web` game and the plain `TicTacToeEnvironment()`
+  constructor use unless you override it. Tic-tac-toe's state space is
+  tiny enough to solve exactly, so this is the strongest possible
+  opponent with zero training — see `WALKTHROUGH.md`'s "Is RL the right
+  choice here?" discussion for why this beats an RL-trained policy for
+  actual play strength.
+- `"heuristic"` — takes a winning move if available, otherwise blocks the
+  agent's winning move, otherwise plays randomly. Beatable — useful as a
+  training adversary for `train_q_learning.py` since it leaves room for
+  an agent to actually win sometimes (`--opponent heuristic`, the
+  training script's own default).
+- `"random"` — always plays a uniformly random empty cell. Easiest baseline.
 
-Swap in a self-play opponent here if you want the agent to bootstrap its
-own adversary instead of a fixed policy.
+None of these three change or improve based on games played — they're
+static policies. `train_q_learning.py` trains a *separate* Q-learning
+agent against them, but that trained policy isn't wired into the
+deployed opponent above.
 
 ## Building the Docker Image
 

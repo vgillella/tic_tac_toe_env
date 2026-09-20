@@ -111,12 +111,12 @@ class TicTacToeEnvironment(Environment):
     # session (factory mode) gets its own isolated game.
     SUPPORTS_CONCURRENT_SESSIONS: bool = True
 
-    def __init__(self, opponent: str = "heuristic", seed: int | None = None):
+    def __init__(self, opponent: str = "minimax", seed: int | None = None):
         """
         Args:
-            opponent: "heuristic" (win/block/random), "random", or
-                "minimax" (optimal play — never loses; a good agent can at
-                best force a draw against it).
+            opponent: "minimax" (default; optimal play — never loses, a
+                good agent can at best force a draw against it),
+                "heuristic" (win/block/random; beatable), or "random".
             seed: Optional RNG seed for reproducible opponent play.
         """
         self._opponent_kind = opponent
