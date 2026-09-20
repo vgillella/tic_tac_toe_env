@@ -5,11 +5,14 @@ Tic Tac Toe Environment Implementation.
 
 The agent plays "X" and always moves first. A built-in opponent plays "O"
 and moves automatically at the end of every `step()` call, unless the
-agent's move already ended the game. Three opponent policies are
-available (see `_opponent_move`): "random" (uniform random), "heuristic"
-(win if possible, else block, else random — beatable, a reasonable
-training adversary), and "minimax" (exhaustive optimal play — never
-loses, useful as an upper-bound evaluation baseline).
+agent's move already ended the game. Four opponent policies are available
+(see `_opponent_move`): "random" (uniform random), "heuristic" (win if
+possible, else block, else random — beatable, a reasonable training
+adversary), "hard" (default — optimal minimax play, but with a small
+chance per move of a random slip, so it's tough but genuinely beatable;
+see `mistake_prob`), and "minimax" (exhaustive optimal play with zero
+mistakes — never loses, useful as an upper-bound evaluation baseline, but
+frustrating as a default since a human can never win).
 """
 
 import random
@@ -111,15 +114,21 @@ class TicTacToeEnvironment(Environment):
     # session (factory mode) gets its own isolated game.
     SUPPORTS_CONCURRENT_SESSIONS: bool = True
 
-    def __init__(self, opponent: str = "minimax", seed: int | None = None):
+    def __init__(self, opponent: str = "hard", seed: int | None = None, mistake_prob: float = 0.15):
         """
         Args:
-            opponent: "minimax" (default; optimal play — never loses, a
-                good agent can at best force a draw against it),
+            opponent: "hard" (default; optimal minimax play, except each
+                opponent move has `mistake_prob` chance of being a random
+                move instead — tough, but a human can win), "minimax"
+                (optimal play with zero mistakes — never loses),
                 "heuristic" (win/block/random; beatable), or "random".
             seed: Optional RNG seed for reproducible opponent play.
+            mistake_prob: For opponent="hard" only — probability (0-1) that
+                a given opponent move is random instead of optimal. Higher
+                = easier. Ignored for other opponent kinds.
         """
         self._opponent_kind = opponent
+        self._mistake_prob = mistake_prob
         self._rng = random.Random(seed)
         self._state = State(episode_id=str(uuid4()), step_count=0)
         self._board: list[int] = [0] * 9
@@ -227,13 +236,15 @@ class TicTacToeEnvironment(Environment):
         )
 
     def _opponent_move(self, board: list[int]) -> int:
-        """Pick the opponent's cell: win if possible, else block, else random."""
+        """Pick the opponent's cell according to `self._opponent_kind`."""
         empties = _empty_cells(board)
 
         if self._opponent_kind == "random":
             return self._rng.choice(empties)
 
-        if self._opponent_kind == "minimax":
+        if self._opponent_kind in ("minimax", "hard"):
+            if self._opponent_kind == "hard" and self._rng.random() < self._mistake_prob:
+                return self._rng.choice(empties)
             move = _minimax_move(board)
             assert move is not None  # `empties` above is non-empty
             return move

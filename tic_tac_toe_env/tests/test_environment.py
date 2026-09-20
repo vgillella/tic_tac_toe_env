@@ -85,7 +85,7 @@ def test_minimax_move_takes_an_available_win():
     assert _minimax_move(board) == 2
 
 
-@pytest.mark.parametrize("opponent", ["random", "heuristic", "minimax"])
+@pytest.mark.parametrize("opponent", ["random", "heuristic", "hard", "minimax"])
 def test_full_games_always_terminate_validly(opponent):
     env = TicTacToeEnvironment(opponent=opponent, seed=42)
     rng = random.Random(1)
@@ -108,3 +108,32 @@ def test_minimax_opponent_never_loses():
             cell = rng.choice(obs.valid_actions)
             obs = env.step(TicTacToeAction(cell=cell))
         assert obs.winner != 1
+
+
+def test_hard_opponent_with_zero_mistake_prob_never_loses():
+    """mistake_prob=0 makes "hard" behave exactly like minimax."""
+    env = TicTacToeEnvironment(opponent="hard", seed=7, mistake_prob=0.0)
+    rng = random.Random(3)
+    for _ in range(30):
+        obs = env.reset()
+        while not obs.done:
+            cell = rng.choice(obs.valid_actions)
+            obs = env.step(TicTacToeAction(cell=cell))
+        assert obs.winner != 1
+
+
+def test_hard_opponent_with_certain_mistakes_is_beatable():
+    """mistake_prob=1.0 makes "hard" play randomly every move — a random-move
+    agent should then win at least sometimes, proving the mistake path is
+    actually reachable and not silently ignored."""
+    env = TicTacToeEnvironment(opponent="hard", seed=1, mistake_prob=1.0)
+    rng = random.Random(2)
+    wins = 0
+    for _ in range(50):
+        obs = env.reset()
+        while not obs.done:
+            cell = rng.choice(obs.valid_actions)
+            obs = env.step(TicTacToeAction(cell=cell))
+        if obs.winner == 1:
+            wins += 1
+    assert wins > 0

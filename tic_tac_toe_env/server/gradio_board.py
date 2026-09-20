@@ -41,6 +41,13 @@ _WIN_LINES = [
 _DEFAULT_SCORE = {"wins": 0, "draws": 0, "losses": 0, "streak": 0, "best_streak": 0, "last_result": None}
 
 _BOARD_CSS = """
+/* Force a dark background regardless of the host page's light/dark
+   setting — every color below is chosen for contrast against this, and
+   Gradio's own light-theme text colors would otherwise wash them out. */
+body, gradio-app, .gradio-container {
+    background: #0f172a !important;
+    color: #e2e8f0 !important;
+}
 #ttt-board { max-width: 340px; margin: 8px auto 4px; }
 #ttt-board .ttt-cell {
     height: 96px !important;
@@ -109,6 +116,7 @@ _BOARD_CSS = """
 .ttt-score-pill.win { background: rgba(34,197,94,0.15); border-color: #22c55e; color: #4ade80; }
 .ttt-score-pill.draw { background: rgba(56,189,248,0.15); border-color: #38bdf8; color: #7dd3fc; }
 .ttt-score-pill.loss { background: rgba(239,68,68,0.15); border-color: #ef4444; color: #f87171; }
+.ttt-score-pill.streak { background: rgba(250,204,21,0.15); border-color: #facc15; color: #fde047; }
 .ttt-badge {
     margin-top: 8px;
     padding: 8px 14px;
@@ -132,6 +140,54 @@ _BOARD_CSS = """
     80% { transform: translateX(5px); }
 }
 #ttt-board.ttt-shake { animation: ttt-shake 0.4s ease; }
+
+#ttt-hero { max-width: 420px; margin: 4px auto 14px; text-align: center; }
+.ttt-hero-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 1.85rem;
+    font-weight: 900;
+    letter-spacing: 0.3px;
+    background: linear-gradient(135deg, #38bdf8, #a855f7 45%, #ec4899) !important;
+    -webkit-background-clip: text !important;
+    background-clip: text !important;
+    -webkit-text-fill-color: transparent !important;
+    color: transparent !important;
+}
+.ttt-hero-mode {
+    font-size: 0.62rem;
+    font-weight: 800;
+    letter-spacing: 0.6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: linear-gradient(135deg, #f97316, #ef4444) !important;
+    -webkit-text-fill-color: #fff !important;
+    color: #fff !important;
+    vertical-align: middle;
+    text-transform: uppercase;
+}
+.ttt-hero-sub { margin-top: 10px; font-size: 0.97rem; line-height: 1.55; color: #cbd5e1 !important; }
+.ttt-hero-sub b { color: #f1f5f9 !important; }
+
+#ttt-status-wrap { max-width: 340px; margin: 0 auto 12px; }
+.ttt-status {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 11px 16px;
+    border-radius: 14px;
+    font-weight: 700;
+    font-size: 0.98rem;
+    border: 1.5px solid;
+}
+.ttt-status, .ttt-status span { color: inherit !important; }
+.ttt-status .ttt-status-icon { font-size: 1.15rem; }
+.ttt-status.info { background: rgba(56,189,248,0.10) !important; border-color: #38bdf8 !important; color: #7dd3fc !important; }
+.ttt-status.win  { background: rgba(34,197,94,0.14) !important; border-color: #22c55e !important; color: #4ade80 !important; }
+.ttt-status.draw { background: rgba(148,163,184,0.14) !important; border-color: #94a3b8 !important; color: #cbd5e1 !important; }
+.ttt-status.loss { background: rgba(239,68,68,0.14) !important; border-color: #ef4444 !important; color: #f87171 !important; }
 """
 
 # Client-side particle-burst engine, injected once. `window.tttBlast(kind)`
@@ -224,12 +280,14 @@ _FX_JS = """
 """
 
 _TRIGGER_JS = """
-(score) => {
-    if (!score) return;
-    const result = score.last_result;
-    if (!window.tttBlast || !result) return;
-    window.tttBlast(result);
-    if (result === 'loss') {
+(signal) => {
+    if (!signal) return;
+    if (!window.tttBlast) {
+        console.warn('[ttt] window.tttBlast is not defined yet — FX engine did not initialize');
+        return;
+    }
+    window.tttBlast(signal);
+    if (signal === 'loss') {
         const board = document.getElementById('ttt-board');
         if (board) {
             board.classList.remove('ttt-shake');
@@ -275,36 +333,66 @@ def _status_message(obs: Dict[str, Any], done: bool) -> str:
     return message
 
 
+def _status_kind(obs: Dict[str, Any], done: bool) -> str:
+    if not done:
+        return "info"
+    winner = obs.get("winner")
+    if winner == 1:
+        return "win"
+    if winner == -1:
+        return "loss"
+    if winner == 0:
+        return "draw"
+    return "info"
+
+
+_STATUS_ICON = {"info": "🎮", "win": "🏆", "draw": "🤝", "loss": "💥"}
+
+
+def _status_html(message: str, kind: str) -> str:
+    icon = _STATUS_ICON.get(kind, "🎮")
+    return f"<div class='ttt-status {kind}'><span class='ttt-status-icon'>{icon}</span><span>{message}</span></div>"
+
+
 def _score_html(score: Dict[str, Any]) -> str:
     wins, draws, losses = score.get("wins", 0), score.get("draws", 0), score.get("losses", 0)
     streak, best_streak = score.get("streak", 0), score.get("best_streak", 0)
 
     badge = ""
-    if score.get("last_result") == "win":
-        badge = "<div class='ttt-badge'>🎉 IMPOSSIBLE — you beat an unbeatable opponent!</div>"
+    last_result = score.get("last_result")
+    if last_result == "win" and wins == 1:
+        badge = "<div class='ttt-badge'>🎉 First win! You caught it slipping.</div>"
+    elif last_result == "win":
+        badge = f"<div class='ttt-badge'>🎉 Win #{wins}! {streak}-game unbeaten streak.</div>"
     elif streak >= 10:
-        badge = f"<div class='ttt-badge'>🏆 {streak}-draw streak — flawless play!</div>"
+        badge = f"<div class='ttt-badge'>🏆 {streak} games unbeaten — you've got its number!</div>"
     elif streak >= 5:
-        badge = f"<div class='ttt-badge'>🔥 {streak} draws in a row — you're on fire!</div>"
+        badge = f"<div class='ttt-badge'>🔥 {streak} games unbeaten in a row!</div>"
     elif streak >= 3:
-        badge = f"<div class='ttt-badge'>✨ {streak}-draw streak — nicely played!</div>"
-    elif best_streak >= 3 and streak == 0 and losses > 0:
-        badge = "<div class='ttt-badge'>💡 Tip: minimax never loses — try to force a draw every time.</div>"
+        badge = f"<div class='ttt-badge'>✨ {streak}-game unbeaten streak — nicely played!</div>"
+    elif last_result == "loss" and losses <= 2:
+        badge = "<div class='ttt-badge'>💡 Tip: watch for forks — two winning lines at once.</div>"
+
+    best_streak_pill = f"<span class='ttt-score-pill streak'>⭐ Best streak {best_streak}</span>" if best_streak > 0 else ""
 
     return (
         "<div id='ttt-scoreboard'><div class='ttt-score-row'>"
         f"<span class='ttt-score-pill win'>🏆 Wins {wins}</span>"
         f"<span class='ttt-score-pill draw'>🤝 Draws {draws}</span>"
         f"<span class='ttt-score-pill loss'>💥 Losses {losses}</span>"
+        + best_streak_pill +
         "</div>" + badge + "</div>"
     )
 
 
 def _apply_result(score: Dict[str, Any], winner: Optional[int]) -> Dict[str, Any]:
+    """Update running score. `streak` counts consecutive non-losses (win or
+    draw), since the opponent is tough but no longer unbeatable."""
     score = dict(score)
     if winner == 1:
         score["wins"] += 1
-        score["streak"] = 0
+        score["streak"] += 1
+        score["best_streak"] = max(score["best_streak"], score["streak"])
         score["last_result"] = "win"
     elif winner == -1:
         score["losses"] += 1
@@ -333,16 +421,20 @@ def build_tic_tac_toe_board(
 
     with gr.Blocks(title=title) as demo:
         gr.HTML(f"<style>{_BOARD_CSS}</style>")
-        gr.Markdown(
-            "## Tic Tac Toe\n"
-            "You are **X** and move first; the opponent (**O**) replies "
-            "automatically after every move — and plays perfectly, so the "
-            "best you can do is draw. Click **New Game** to start."
+        gr.HTML(
+            "<div id='ttt-hero'>"
+            "<div class='ttt-hero-title'>🎮 Tic Tac Toe <span class='ttt-hero-mode'>Hard Mode</span></div>"
+            "<div class='ttt-hero-sub'>You're <b>X</b> — move first. The AI (<b>O</b>) fires back instantly "
+            "and plays a mean game… but it isn't flawless. Find the crack and take it down. "
+            "Hit <b>New Game</b> to begin.</div>"
+            "</div>"
         )
 
         score_state = gr.State(value=dict(_DEFAULT_SCORE))
         scoreboard = gr.HTML(_score_html(_DEFAULT_SCORE))
-        status = gr.Textbox(label="Status", value="Click New Game to start.", interactive=False)
+        with gr.Column(elem_id="ttt-status-wrap"):
+            status = gr.HTML(_status_html("Click New Game to start.", "info"))
+        signal = gr.Textbox(value="", visible=False)
 
         buttons: List[gr.Button] = []
         with gr.Column(elem_id="ttt-board"):
@@ -360,7 +452,8 @@ def build_tic_tac_toe_board(
             updates = _board_updates(obs.get("board", [0] * 9), done=False)
             score = dict(score)
             score["last_result"] = None
-            return (*updates, _status_message(obs, done=False), _score_html(score), score)
+            status_html = _status_html(_status_message(obs, done=False), _status_kind(obs, done=False))
+            return (*updates, status_html, _score_html(score), score, "")
 
         def _make_play_fn(cell: int):
             async def _play(score: Dict[str, Any]):
@@ -371,17 +464,19 @@ def build_tic_tac_toe_board(
                 win_line = _winning_line(board) if done else None
                 updates = _board_updates(board, done=done, win_line=win_line)
                 new_score = _apply_result(score, obs.get("winner")) if done else dict(score, last_result=None)
-                return (*updates, _status_message(obs, done=done), _score_html(new_score), new_score)
+                status_html = _status_html(_status_message(obs, done=done), _status_kind(obs, done=done))
+                fx_signal = new_score["last_result"] or ""
+                return (*updates, status_html, _score_html(new_score), new_score, fx_signal)
 
             return _play
 
-        demo.load(fn=None, js=_FX_JS)
+        demo.load(fn=None, inputs=[], outputs=[], js=_FX_JS)
 
-        outputs = [*buttons, status, scoreboard, score_state]
+        outputs = [*buttons, status, scoreboard, score_state, signal]
         new_game_btn.click(fn=_reset, inputs=[score_state], outputs=outputs)
         for i, btn in enumerate(buttons):
             btn.click(fn=_make_play_fn(i), inputs=[score_state], outputs=outputs).then(
-                fn=None, inputs=[score_state], js=_TRIGGER_JS
+                fn=None, inputs=[signal], outputs=[], js=_TRIGGER_JS
             )
 
     return demo

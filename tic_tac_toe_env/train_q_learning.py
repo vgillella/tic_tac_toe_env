@@ -106,7 +106,7 @@ def evaluate(q_table: dict, opponent: str, games: int) -> dict:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--episodes", type=int, default=20000)
-    parser.add_argument("--opponent", choices=["heuristic", "random", "minimax"], default="heuristic")
+    parser.add_argument("--opponent", choices=["heuristic", "random", "hard", "minimax"], default="heuristic")
     parser.add_argument("--alpha", type=float, default=0.5, help="learning rate")
     parser.add_argument("--gamma", type=float, default=0.95, help="discount factor")
     parser.add_argument("--epsilon-start", type=float, default=1.0)
@@ -141,7 +141,7 @@ def main():
         save_q_table(q_table, args.save_path)
         print(f"Saved Q-table to {args.save_path}")
 
-    for opp in ("heuristic", "random", "minimax"):
+    for opp in ("heuristic", "random", "hard", "minimax"):
         results = evaluate(q_table, opponent=opp, games=args.eval_games)
         win_rate = results["wins"] / results["games"]
         draw_rate = results["draws"] / results["games"]
